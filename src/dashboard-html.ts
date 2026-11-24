@@ -111,7 +111,7 @@ export function renderDashboardHtml({
       </div>
       <div class="actions">
         <a href="/api/status" class="btn-ghost mono">/api/status</a>
-        <form method="POST" action="/probe"><button type="submit" class="btn-primary">Run Sweep Now</button></form>
+        <form method="POST" action="/api/sweep"><button type="submit" class="btn-primary">Run Sweep Now</button></form>
       </div>
     </div>
     <nav class="tabs" aria-label="Target filter">
@@ -122,8 +122,8 @@ export function renderDashboardHtml({
       <details class="about">
         <summary><span style="color:#4ECDC4">ⓘ</span> About this sandbox</summary>
         <div class="about-grid">
-          <div><strong>1. Real Network Probes</strong>Executes live HTTP status checks and raw TCP handshakes via Node <code>fetch</code> &amp; <code>node:net</code>.</div>
-          <div><strong>2. SQLite Window Functions</strong>Computes 24h <code>p50</code>/<code>p95</code> nearest-rank percentiles in SQLite WAL, excluding failed checks from latency.</div>
+          <div><strong>1. Real Network Probes (Anti-SSRF)</strong>Executes live HTTP checks and TCP handshakes; custom URLs resolve DNS first to block private/loopback IPs and redirects.</div>
+          <div><strong>2. SQLite WAL · 6h Rolling Retention</strong>Computes <code>p50</code>/<code>p95</code> percentiles in SQLite and auto-prunes records older than 6 hours (4,000-row hard cap).</div>
           <div><strong>3. Deduplicated Incident Alerts</strong>Records <code>DOWN</code> / <code>RECOVERED</code> transitions once per outage and dispatches webhooks only on state change.</div>
         </div>
       </details>
@@ -139,9 +139,9 @@ export function renderDashboardHtml({
   <main class="wrap">
     <section class="probe-bar" aria-label="Probe custom endpoint">
       <span class="mono muted" style="font-size:11px">PROBE CUSTOM ENDPOINT</span>
-      <form method="POST" action="/probe-custom" class="probe-form">
+      <form method="POST" action="/api/probe" class="probe-form">
         <label for="custom-url" style="position:absolute;width:1px;height:1px;overflow:hidden">Custom endpoint URL</label>
-        <input id="custom-url" name="url" type="url" required placeholder="https://haarls.dev" class="input-url mono" />
+        <input id="custom-url" name="url" type="url" maxlength="255" required placeholder="https://haarls.dev" class="input-url mono" />
         <button type="submit" class="btn-ghost">Test Now</button>
       </form>
     </section>

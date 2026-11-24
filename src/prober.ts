@@ -90,6 +90,50 @@ export function probeTarget(target: TargetConfig): Promise<CheckRecord> {
   return target.type === 'http' ? probeHttp(target) : probeTcp(target);
 }
 
+export async function probePublicHttpUrl(
+  url: string,
+  hostname: string,
+  timeoutMs = 5_000,
+): Promise<CheckRecord> {
+  const started = performance.now();
+  const checkedAt = new Date().toISOString();
+  const targetName = `custom:${hostname}`;
+
+  try {
+    // Never follow redirects automatically so a public host cannot 302 into 127.0.0.1 or internal ports.
+    const res = await fetch(url, {
+      redirect: 'manual',
+      headers: { 'User-Agent': 'vps-pulse-monitor/1.0' },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const latencyMs = roundMs(performance.now() - started);
+    await res.body?.cancel().catch(() => undefined);
+
+    const isUp = res.status >= 200 && res.status < 400;
+    return {
+      targetName,
+      targetType: 'http',
+      endpoint: url,
+      statusCode: res.status,
+      latencyMs,
+      isUp,
+      errorMessage: isUp ? null : `HTTP ${res.status}`,
+      checkedAt,
+    };
+  } catch (err) {
+    return {
+      targetName,
+      targetType: 'http',
+      endpoint: url,
+      statusCode: null,
+      latencyMs: roundMs(performance.now() - started),
+      isUp: false,
+      errorMessage: err instanceof Error ? err.message : String(err),
+      checkedAt,
+    };
+  }
+}
+
 export async function probeAll(targets: TargetConfig[], concurrency = 8): Promise<CheckRecord[]> {
   const results = new Array<CheckRecord>(targets.length);
   let cursor = 0;

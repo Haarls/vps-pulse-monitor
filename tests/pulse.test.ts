@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { dispatchWebhookAlert } from '../src/alerter.js';
 import { TargetsListSchema } from '../src/config.js';
 import { probeAll } from '../src/prober.js';
+import { isPrivateOrReservedIp, validatePublicHttpUrl } from '../src/ssrf.js';
 import { PulseStore } from '../src/store.js';
 
 const stores: PulseStore[] = [];
@@ -195,5 +196,47 @@ describe('vps-pulse-monitor', () => {
       },
     ]);
     expect(res.success).toBe(false);
+  });
+
+  it('blocks private/loopback/reserved IPs and allows valid public URLs in SSRF guard', async () => {
+    for (const ip of [
+      '127.0.0.1',
+      '10.0.0.5',
+      '172.16.4.1',
+      '192.168.1.20',
+      '169.254.169.254',
+      '0.0.0.0',
+      '::1',
+      'fc00::1',
+      'fe80::1',
+      '::ffff:127.0.0.1',
+    ]) {
+      expect(isPrivateOrReservedIp(ip)).toBe(true);
+    }
+    expect(isPrivateOrReservedIp('93.184.216.34')).toBe(false);
+
+    const fakeLookup = async (host: string) =>
+      host === 'evil-rebind.test' ? [{ address: '127.0.0.1' }] : [{ address: '93.184.216.34' }];
+
+    expect((await validatePublicHttpUrl('http://127.0.0.1:4101', fakeLookup)).ok).toBe(false);
+    expect((await validatePublicHttpUrl('http://localhost:4101', fakeLookup)).ok).toBe(false);
+    expect((await validatePublicHttpUrl('https://evil-rebind.test', fakeLookup)).ok).toBe(false);
+    expect((await validatePublicHttpUrl('file:///etc/passwd', fakeLookup)).ok).toBe(false);
+    expect((await validatePublicHttpUrl(`https://haarls.dev/${'a'.repeat(250)}`, fakeLookup)).ok).toBe(false);
+    expect((await validatePublicHttpUrl('https://haarls.dev', fakeLookup)).ok).toBe(true);
+  });
+
+  it('auto-prunes checks older than 6h and enforces absolute row cap', () => {
+    const store = createMemoryStore();
+    const now = '2026-11-24T18:00:00.000Z';
+    const base = { targetName: 'api', targetType: 'http' as const, endpoint: 'https://haarls.dev', statusCode: 200, latencyMs: 12, isUp: true, errorMessage: null };
+
+    store.recordCheck({ ...base, checkedAt: '2026-11-24T10:00:00.000Z' }); // 8h old -> pruned
+    store.recordCheck({ ...base, checkedAt: '2026-11-24T17:00:00.000Z' }); // 1h old
+    store.recordCheck({ ...base, checkedAt: '2026-11-24T17:30:00.000Z' }); // 30m old
+    store.recordCheck({ ...base, checkedAt: '2026-11-24T17:55:00.000Z' }); // 5m old
+
+    store.pruneOldRecords(now, 2);
+    expect(store.getRecentChecks(10)).toHaveLength(2);
   });
 });

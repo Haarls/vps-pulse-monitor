@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { dispatchWebhookAlert, formatAlertMessage } from './alerter.js';
 import { loadTargets } from './config.js';
-import { probeAll, probeTarget, type CheckRecord } from './prober.js';
+import { probeAll, probePublicHttpUrl, probeTarget, type CheckRecord } from './prober.js';
 import { createDashboardServer } from './server.js';
 import { PulseStore } from './store.js';
 
@@ -15,10 +15,15 @@ async function main(): Promise<void> {
   const once = process.argv.includes('--once');
   const configPath = path.resolve(readArg('--config') ?? './targets.json');
   const dbPath = path.resolve(readArg('--db') ?? process.env.PULSE_DB_PATH ?? './pulse.db');
-  const port = Number(readArg('--port') ?? process.env.PULSE_PORT ?? 4080);
+  const host = process.env.HOST ?? '127.0.0.1';
+  const port = Number(readArg('--port') ?? process.env.PULSE_PORT ?? process.env.PORT ?? 4080);
   const webhookUrl = process.env.ALERT_WEBHOOK_URL;
 
-  const targets = loadTargets(configPath);
+  const targets = loadTargets(configPath).map((t) =>
+    t.type === 'http' && t.name === 'pulse-local-health'
+      ? { ...t, url: `http://${host}:${port}/healthz` }
+      : t,
+  );
   const store = new PulseStore(dbPath);
 
   const ingestCheck = async (check: CheckRecord) => {
@@ -34,6 +39,7 @@ async function main(): Promise<void> {
     for (const check of await probeAll(targets)) {
       await ingestCheck(check);
     }
+    store.pruneOldRecords();
   };
 
   if (once) {
@@ -48,18 +54,11 @@ async function main(): Promise<void> {
     return;
   }
 
-  const probeCustomUrl = async (rawUrl: string) => {
-    const parsed = new URL(rawUrl);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
-    const check = await probeTarget({
-      name: `custom:${parsed.hostname}`,
-      type: 'http',
-      url: parsed.toString(),
-      intervalSeconds: 60,
-      timeoutMs: 5000,
-      expectedStatus: 200,
-    });
+  const probeCustomUrl = async (url: string, hostname: string): Promise<CheckRecord> => {
+    const check = await probePublicHttpUrl(url, hostname);
     await ingestCheck(check);
+    store.pruneOldRecords();
+    return check;
   };
 
   const server = createDashboardServer({
@@ -69,19 +68,20 @@ async function main(): Promise<void> {
     onManualSweep: runFullSweep,
     onProbeCustom: probeCustomUrl,
   });
-  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
-  console.log(
-    `VPS Pulse Monitor listening on http://127.0.0.1:${port} (${targets.length} targets)`,
-  );
+
+  await new Promise<void>((resolve) => server.listen(port, host, resolve));
+  console.log(`VPS Pulse Monitor listening on http://${host}:${port} (${targets.length} targets)`);
 
   await runFullSweep();
 
   const timers = targets.map((t) =>
     setInterval(() => void probeTarget(t).then(ingestCheck), t.intervalSeconds * 1000),
   );
+  const pruneTimer = setInterval(() => store.pruneOldRecords(), 5 * 60_000);
 
   const shutdown = () => {
     for (const timer of timers) clearInterval(timer);
+    clearInterval(pruneTimer);
     server.close(() => {
       store.close();
       process.exit(0);

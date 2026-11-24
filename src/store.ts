@@ -205,6 +205,20 @@ export class PulseStore {
     return grouped;
   }
 
+  pruneOldRecords(nowIso: string = new Date().toISOString(), maxRows = 4_000): void {
+    const cutoff6h = new Date(Date.parse(nowIso) - 6 * 3_600_000).toISOString();
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM checks WHERE checked_at < ?').run(cutoff6h);
+      this.db.prepare('DELETE FROM incidents WHERE occurred_at < ?').run(cutoff6h);
+      this.db
+        .prepare('DELETE FROM checks WHERE id NOT IN (SELECT id FROM checks ORDER BY id DESC LIMIT ?)')
+        .run(maxRows);
+      this.db
+        .prepare('DELETE FROM target_states WHERE target_name NOT IN (SELECT DISTINCT target_name FROM checks)')
+        .run();
+    })();
+  }
+
   close(): void {
     this.db.close();
   }
