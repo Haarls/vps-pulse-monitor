@@ -12,6 +12,17 @@ export interface StateTransition {
 
 export type IncidentRow = Omit<StateTransition, 'endpoint'> & { id: number };
 
+export interface RecentCheckRow {
+  targetName: string;
+  targetType: 'http' | 'tcp';
+  endpoint: string;
+  statusCode: number | null;
+  latencyMs: number;
+  isUp: boolean;
+  errorMessage: string | null;
+  checkedAt: string;
+}
+
 export interface ServiceMetrics24h {
   targetName: string;
   targetType: 'http' | 'tcp';
@@ -160,6 +171,38 @@ export class PulseStore {
         'SELECT id, target_name AS targetName, event_type AS eventType, reason, duration_sec AS durationSec, occurred_at AS occurredAt FROM incidents WHERE occurred_at >= ? ORDER BY occurred_at DESC, id DESC LIMIT ?',
       )
       .all(cutoffIso, limit);
+  }
+
+  getRecentChecks(limit = 12): RecentCheckRow[] {
+    return this.db
+      .prepare<[number], Omit<RecentCheckRow, 'isUp'> & { isUp: number }>(
+        `SELECT target_name AS targetName, target_type AS targetType, endpoint,
+                status_code AS statusCode, latency_ms AS latencyMs, is_up AS isUp,
+                error_message AS errorMessage, checked_at AS checkedAt
+         FROM checks ORDER BY checked_at DESC, id DESC LIMIT ?`,
+      )
+      .all(limit)
+      .map((r) => ({ ...r, isUp: r.isUp === 1 }));
+  }
+
+  getRecentHistoryByTarget(perTarget = 16): Map<string, Array<{ latencyMs: number; isUp: boolean }>> {
+    const rows = this.db
+      .prepare<[number], { targetName: string; latencyMs: number; isUp: number }>(
+        `SELECT targetName, latencyMs, isUp FROM (
+           SELECT target_name AS targetName, latency_ms AS latencyMs, is_up AS isUp,
+                  ROW_NUMBER() OVER (PARTITION BY target_name ORDER BY checked_at DESC, id DESC) AS rn
+           FROM checks
+         ) WHERE rn <= ? ORDER BY targetName ASC, rn DESC`,
+      )
+      .all(perTarget);
+
+    const grouped = new Map<string, Array<{ latencyMs: number; isUp: boolean }>>();
+    for (const r of rows) {
+      const list = grouped.get(r.targetName) ?? [];
+      list.push({ latencyMs: r.latencyMs, isUp: r.isUp === 1 });
+      grouped.set(r.targetName, list);
+    }
+    return grouped;
   }
 
   close(): void {

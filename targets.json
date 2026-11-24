@@ -38,5 +38,13 @@
     "port": 443,
     "intervalSeconds": 30,
     "timeoutMs": 2500
+  },
+  {
+    "name": "staging-checkout-tcp",
+    "type": "tcp",
+    "host": "127.0.0.1",
+    "port": 59999,
+    "intervalSeconds": 30,
+    "timeoutMs": 1000
   }
 ]

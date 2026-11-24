@@ -48,7 +48,27 @@ async function main(): Promise<void> {
     return;
   }
 
-  const server = createDashboardServer({ store, onManualSweep: runFullSweep });
+  const probeCustomUrl = async (rawUrl: string) => {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return;
+    const check = await probeTarget({
+      name: `custom:${parsed.hostname}`,
+      type: 'http',
+      url: parsed.toString(),
+      intervalSeconds: 60,
+      timeoutMs: 5000,
+      expectedStatus: 200,
+    });
+    await ingestCheck(check);
+  };
+
+  const server = createDashboardServer({
+    store,
+    targetsJson: JSON.stringify(targets, null, 2),
+    dbPath,
+    onManualSweep: runFullSweep,
+    onProbeCustom: probeCustomUrl,
+  });
   await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
   console.log(
     `VPS Pulse Monitor listening on http://127.0.0.1:${port} (${targets.length} targets)`,
