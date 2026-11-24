@@ -2,14 +2,15 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { IncidentRow, PulseStore, ServiceMetrics24h } from './store.js';
 
 const esc = (s: string): string =>
-  s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 const fmtUtc = (iso: string): string => iso.slice(0, 19).replace('T', ' ');
 const fmtMs = (ms: number | null): string => (ms === null ? '—' : `${ms.toFixed(1)} ms`);
+
+const sendJson = (res: ServerResponse, status: number, payload: unknown): void => {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(payload));
+};
 
 function renderDashboardHtml(
   services: ServiceMetrics24h[],
@@ -28,21 +29,19 @@ function renderDashboardHtml(
           .map((s) => {
             const codeLabel =
               s.targetType === 'http'
-                ? s.lastStatusCode !== null
-                  ? String(s.lastStatusCode)
-                  : 'ERR'
+                ? String(s.lastStatusCode ?? 'ERR')
                 : s.isUp
                   ? 'TCP OK'
                   : 'TCP ERR';
-            const stateCls = s.isUp ? 'st-ok' : 'st-err';
-            const upCls = s.uptimePct24h >= 99 ? 'st-ok' : s.uptimePct24h >= 95 ? 'st-warn' : 'st-err';
+            const upCls =
+              s.uptimePct24h >= 99 ? 'st-ok' : s.uptimePct24h >= 95 ? 'st-warn' : 'st-err';
 
             return `<tr>
               <td>
                 <div class="svc-name">${esc(s.targetName)}</div>
                 <div class="svc-meta">${esc(s.targetType.toUpperCase())} · ${esc(s.endpoint)}</div>
               </td>
-              <td><span class="badge ${stateCls}">${s.isUp ? 'UP' : 'DOWN'}</span></td>
+              <td><span class="badge ${s.isUp ? 'st-ok' : 'st-err'}">${s.isUp ? 'UP' : 'DOWN'}</span></td>
               <td class="num mono">${esc(codeLabel)}</td>
               <td class="num mono r">${fmtMs(s.p50Ms)}</td>
               <td class="num mono r">${fmtMs(s.p95Ms)}</td>
@@ -88,13 +87,7 @@ function renderDashboardHtml(
   <title>VPS Pulse Monitor</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: #0B0F14;
-      color: #F1F5F9;
-      font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      -webkit-font-smoothing: antialiased;
-    }
+    body { margin: 0; background: #0B0F14; color: #F1F5F9; font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
     *:focus-visible { outline: 2px solid #4ECDC4; outline-offset: 2px; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
     .num { font-variant-numeric: tabular-nums; }
@@ -110,23 +103,14 @@ function renderDashboardHtml(
     .brand h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
     .summary-pill { border: 1px solid #1E293B; background: #0B0F14; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
     .tabs { display: flex; gap: 20px; }
-    .tabs a {
-      color: #94A3B8; text-decoration: none; padding: 9px 0; font-size: 12px; font-weight: 500;
-      border-bottom: 2px solid transparent;
-    }
+    .tabs a { color: #94A3B8; text-decoration: none; padding: 9px 0; font-size: 12px; font-weight: 500; border-bottom: 2px solid transparent; }
     .tabs a:hover { color: #F1F5F9; }
     .tabs a.active { color: #F1F5F9; border-bottom-color: #4ECDC4; }
-    .btn {
-      background: #4ECDC4; color: #0B0F14; border: 0; border-radius: 4px;
-      padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
-    }
+    .btn { background: #4ECDC4; color: #0B0F14; border: 0; border-radius: 4px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
     .btn:hover { opacity: 0.9; }
     main { padding: 24px 0 48px; }
     .panel { background: #121821; border: 1px solid #1E293B; border-radius: 4px; overflow-x: auto; margin-bottom: 24px; }
-    .panel-hd {
-      padding: 11px 16px; border-bottom: 1px solid #1E293B;
-      display: flex; align-items: center; justify-content: space-between;
-    }
+    .panel-hd { padding: 11px 16px; border-bottom: 1px solid #1E293B; display: flex; align-items: center; justify-content: space-between; }
     .panel-hd h2 { margin: 0; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #94A3B8; }
     table { width: 100%; border-collapse: collapse; text-align: left; }
     th { padding: 10px 16px; font-size: 12px; font-weight: 500; color: #94A3B8; border-bottom: 1px solid #1E293B; white-space: nowrap; }
@@ -134,11 +118,7 @@ function renderDashboardHtml(
     tbody tr:last-child td { border-bottom: 0; }
     .svc-name { font-weight: 500; color: #F1F5F9; }
     .svc-meta { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: #94A3B8; margin-top: 2px; }
-    .badge {
-      display: inline-block; padding: 1px 7px; border-radius: 3px;
-      border: 1px solid #1E293B; background: #0B0F14;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; font-weight: 600;
-    }
+    .badge { display: inline-block; padding: 1px 7px; border-radius: 3px; border: 1px solid #1E293B; background: #0B0F14; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; font-weight: 600; }
     .empty, .empty-box { padding: 22px 16px; color: #94A3B8; font-size: 12px; margin: 0; }
   </style>
 </head>
@@ -148,9 +128,7 @@ function renderDashboardHtml(
       <div class="topbar">
         <div class="brand">
           <h1 class="mono">VPS PULSE MONITOR</h1>
-          <span class="summary-pill num mono ${downCount > 0 ? 'st-err' : 'st-ok'}">
-            ${services.length - downCount}/${services.length} UP
-          </span>
+          <span class="summary-pill num mono ${downCount > 0 ? 'st-err' : 'st-ok'}">${services.length - downCount}/${services.length} UP</span>
         </div>
         <form method="POST" action="/probe">
           <button type="submit" class="btn">Run Sweep Now</button>
@@ -207,23 +185,21 @@ export function createDashboardServer({ store, onManualSweep }: DashboardOptions
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
 
     if (req.method === 'GET' && url.pathname === '/healthz') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ ok: true }));
+      sendJson(res, 200, { ok: true });
       return;
     }
 
     if (req.method === 'GET' && url.pathname === '/api/status') {
-      const services = store.getMetrics24h();
-      const incidents = store.getRecentIncidents();
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ generatedAt: new Date().toISOString(), services, incidents }));
+      sendJson(res, 200, {
+        generatedAt: new Date().toISOString(),
+        services: store.getMetrics24h(),
+        incidents: store.getRecentIncidents(),
+      });
       return;
     }
 
     if (req.method === 'POST' && url.pathname === '/probe') {
-      if (onManualSweep) {
-        await onManualSweep();
-      }
+      await onManualSweep?.();
       res.writeHead(303, { Location: '/' });
       res.end();
       return;
@@ -231,13 +207,11 @@ export function createDashboardServer({ store, onManualSweep }: DashboardOptions
 
     if (req.method === 'GET' && url.pathname === '/') {
       const filter = url.searchParams.get('filter') === 'down' ? 'down' : 'all';
-      const html = renderDashboardHtml(store.getMetrics24h(), store.getRecentIncidents(), filter);
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(html);
+      res.end(renderDashboardHtml(store.getMetrics24h(), store.getRecentIncidents(), filter));
       return;
     }
 
-    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ error: '404 Not Found' }));
+    sendJson(res, 404, { error: '404 Not Found' });
   });
 }

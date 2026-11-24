@@ -21,7 +21,6 @@ async function probeHttp(target: Extract<TargetConfig, { type: 'http' }>): Promi
 
   try {
     const res = await fetch(target.url, {
-      method: 'GET',
       redirect: 'follow',
       headers: { 'User-Agent': 'vps-pulse-monitor/1.0' },
       signal: AbortSignal.timeout(target.timeoutMs),
@@ -29,28 +28,26 @@ async function probeHttp(target: Extract<TargetConfig, { type: 'http' }>): Promi
     const latencyMs = roundMs(performance.now() - started);
     await res.body?.cancel().catch(() => undefined);
 
-    const matched = res.status === target.expectedStatus;
+    const isUp = res.status === target.expectedStatus;
     return {
       targetName: target.name,
       targetType: 'http',
       endpoint: target.url,
       statusCode: res.status,
       latencyMs,
-      isUp: matched,
-      errorMessage: matched ? null : `Expected HTTP ${target.expectedStatus}, got ${res.status}`,
+      isUp,
+      errorMessage: isUp ? null : `Expected HTTP ${target.expectedStatus}, got ${res.status}`,
       checkedAt,
     };
   } catch (err) {
-    const latencyMs = roundMs(performance.now() - started);
-    const message = err instanceof Error ? err.message : String(err);
     return {
       targetName: target.name,
       targetType: 'http',
       endpoint: target.url,
       statusCode: null,
-      latencyMs,
+      latencyMs: roundMs(performance.now() - started),
       isUp: false,
-      errorMessage: message,
+      errorMessage: err instanceof Error ? err.message : String(err),
       checkedAt,
     };
   }
@@ -68,14 +65,13 @@ function probeTcp(target: Extract<TargetConfig, { type: 'tcp' }>): Promise<Check
     const finish = (isUp: boolean, errorMessage: string | null) => {
       if (settled) return;
       settled = true;
-      const latencyMs = roundMs(performance.now() - started);
       socket.destroy();
       resolve({
         targetName: target.name,
         targetType: 'tcp',
         endpoint,
         statusCode: null,
-        latencyMs,
+        latencyMs: roundMs(performance.now() - started),
         isUp,
         errorMessage,
         checkedAt,
@@ -98,17 +94,14 @@ export async function probeAll(targets: TargetConfig[], concurrency = 8): Promis
   const results = new Array<CheckRecord>(targets.length);
   let cursor = 0;
 
-  const worker = async () => {
-    while (cursor < targets.length) {
-      const idx = cursor++;
-      const target = targets[idx];
-      if (target) {
-        results[idx] = await probeTarget(target);
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, targets.length) }, async () => {
+      while (cursor < targets.length) {
+        const idx = cursor++;
+        const target = targets[idx];
+        if (target) results[idx] = await probeTarget(target);
       }
-    }
-  };
-
-  const workers = Array.from({ length: Math.min(concurrency, targets.length) }, () => worker());
-  await Promise.all(workers);
+    }),
+  );
   return results;
 }

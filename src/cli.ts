@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import path from 'node:path';
 import { dispatchWebhookAlert, formatAlertMessage } from './alerter.js';
-import { loadTargets, type TargetConfig } from './config.js';
-import { probeAll, probeTarget } from './prober.js';
+import { loadTargets } from './config.js';
+import { probeAll, probeTarget, type CheckRecord } from './prober.js';
 import { createDashboardServer } from './server.js';
 import { PulseStore } from './store.js';
 
@@ -21,38 +21,27 @@ async function main(): Promise<void> {
   const targets = loadTargets(configPath);
   const store = new PulseStore(dbPath);
 
-  const handleCheckTarget = async (target: TargetConfig) => {
-    const check = await probeTarget(target);
+  const ingestCheck = async (check: CheckRecord) => {
     const transition = store.recordCheck(check);
-    if (transition) {
-      console.log(formatAlertMessage(transition));
-      await dispatchWebhookAlert(webhookUrl, transition).catch((err: unknown) => {
-        console.error(`Webhook delivery error for ${target.name}:`, err);
-      });
-    }
+    if (!transition) return;
+    console.log(formatAlertMessage(transition));
+    await dispatchWebhookAlert(webhookUrl, transition).catch((err: unknown) => {
+      console.error(`Webhook delivery error for ${check.targetName}:`, err);
+    });
   };
 
   const runFullSweep = async () => {
-    const checks = await probeAll(targets);
-    for (const check of checks) {
-      const transition = store.recordCheck(check);
-      if (transition) {
-        console.log(formatAlertMessage(transition));
-        await dispatchWebhookAlert(webhookUrl, transition).catch((err: unknown) => {
-          console.error(`Webhook delivery error for ${check.targetName}:`, err);
-        });
-      }
+    for (const check of await probeAll(targets)) {
+      await ingestCheck(check);
     }
   };
 
   if (once) {
     await runFullSweep();
-    const metrics = store.getMetrics24h();
-    for (const m of metrics) {
-      const state = m.isUp ? 'UP  ' : 'DOWN';
+    for (const m of store.getMetrics24h()) {
       const code = m.lastStatusCode ?? (m.isUp ? 'TCP' : 'ERR');
       console.log(
-        `${state} | ${m.targetName.padEnd(24)} | ${String(code).padEnd(4)} | last=${m.lastLatencyMs.toFixed(1)}ms | p50=${m.p50Ms?.toFixed(1) ?? '-'}ms | p95=${m.p95Ms?.toFixed(1) ?? '-'}ms | up24h=${m.uptimePct24h.toFixed(2)}%`,
+        `${m.isUp ? 'UP  ' : 'DOWN'} | ${m.targetName.padEnd(24)} | ${String(code).padEnd(4)} | last=${m.lastLatencyMs.toFixed(1)}ms | p50=${m.p50Ms?.toFixed(1) ?? '-'}ms | p95=${m.p95Ms?.toFixed(1) ?? '-'}ms | up24h=${m.uptimePct24h.toFixed(2)}%`,
       );
     }
     store.close();
@@ -66,9 +55,7 @@ async function main(): Promise<void> {
   await runFullSweep();
 
   const timers = targets.map((t) =>
-    setInterval(() => {
-      void handleCheckTarget(t);
-    }, t.intervalSeconds * 1000),
+    setInterval(() => void probeTarget(t).then(ingestCheck), t.intervalSeconds * 1000),
   );
 
   const shutdown = () => {
