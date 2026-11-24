@@ -50,7 +50,9 @@ async function main(): Promise<void> {
 
   const server = createDashboardServer({ store, onManualSweep: runFullSweep });
   await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
-  console.log(`VPS Pulse Monitor listening on http://127.0.0.1:${port} (${targets.length} targets)`);
+  console.log(
+    `VPS Pulse Monitor listening on http://127.0.0.1:${port} (${targets.length} targets)`,
+  );
 
   await runFullSweep();
 

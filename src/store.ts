@@ -2,17 +2,29 @@ import Database from 'better-sqlite3';
 import type { CheckRecord } from './prober.js';
 
 export interface StateTransition {
-  targetName: string; endpoint: string; eventType: 'DOWN' | 'RECOVERED';
-  reason: string; durationSec: number | null; occurredAt: string;
+  targetName: string;
+  endpoint: string;
+  eventType: 'DOWN' | 'RECOVERED';
+  reason: string;
+  durationSec: number | null;
+  occurredAt: string;
 }
 
 export type IncidentRow = Omit<StateTransition, 'endpoint'> & { id: number };
 
 export interface ServiceMetrics24h {
-  targetName: string; targetType: 'http' | 'tcp'; endpoint: string; isUp: boolean;
-  lastStatusCode: number | null; lastLatencyMs: number; lastError: string | null;
-  lastCheckedAt: string; totalChecks24h: number; uptimePct24h: number;
-  p50Ms: number | null; p95Ms: number | null;
+  targetName: string;
+  targetType: 'http' | 'tcp';
+  endpoint: string;
+  isUp: boolean;
+  lastStatusCode: number | null;
+  lastLatencyMs: number;
+  lastError: string | null;
+  lastCheckedAt: string;
+  totalChecks24h: number;
+  uptimePct24h: number;
+  p50Ms: number | null;
+  p95Ms: number | null;
 }
 
 export class PulseStore {
@@ -41,11 +53,24 @@ export class PulseStore {
   recordCheck(check: CheckRecord): StateTransition | null {
     return this.db.transaction((): StateTransition | null => {
       this.db
-        .prepare('INSERT INTO checks (target_name, target_type, endpoint, status_code, latency_ms, is_up, error_message, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(check.targetName, check.targetType, check.endpoint, check.statusCode, check.latencyMs, check.isUp ? 1 : 0, check.errorMessage, check.checkedAt);
+        .prepare(
+          'INSERT INTO checks (target_name, target_type, endpoint, status_code, latency_ms, is_up, error_message, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          check.targetName,
+          check.targetType,
+          check.endpoint,
+          check.statusCode,
+          check.latencyMs,
+          check.isUp ? 1 : 0,
+          check.errorMessage,
+          check.checkedAt,
+        );
 
       const prior = this.db
-        .prepare<[string], { is_up: number; changed_at: string }>('SELECT is_up, changed_at FROM target_states WHERE target_name = ?')
+        .prepare<[string], { is_up: number; changed_at: string }>(
+          'SELECT is_up, changed_at FROM target_states WHERE target_name = ?',
+        )
         .get(check.targetName);
       const upsertState = this.db.prepare(
         'INSERT INTO target_states (target_name, is_up, changed_at) VALUES (?, ?, ?) ON CONFLICT(target_name) DO UPDATE SET is_up = excluded.is_up, changed_at = excluded.changed_at',
@@ -59,18 +84,33 @@ export class PulseStore {
 
       upsertState.run(check.targetName, check.isUp ? 1 : 0, check.checkedAt);
       const eventType = check.isUp ? 'RECOVERED' : 'DOWN';
-      const durationSec = check.isUp && prior
-        ? Math.max(0, Math.round((Date.parse(check.checkedAt) - Date.parse(prior.changed_at)) / 1000))
-        : null;
-      const reason = check.isUp
-        ? (check.statusCode !== null ? `HTTP ${check.statusCode} OK` : 'TCP handshake restored')
-        : (check.errorMessage ?? 'Target unreachable');
+      const durationSec =
+        check.isUp && prior
+          ? Math.max(
+              0,
+              Math.round((Date.parse(check.checkedAt) - Date.parse(prior.changed_at)) / 1000),
+            )
+          : null;
+      let reason = check.errorMessage ?? 'Target unreachable';
+      if (check.isUp) {
+        reason =
+          check.statusCode !== null ? `HTTP ${check.statusCode} OK` : 'TCP handshake restored';
+      }
 
       this.db
-        .prepare('INSERT INTO incidents (target_name, event_type, reason, duration_sec, occurred_at) VALUES (?, ?, ?, ?, ?)')
+        .prepare(
+          'INSERT INTO incidents (target_name, event_type, reason, duration_sec, occurred_at) VALUES (?, ?, ?, ?, ?)',
+        )
         .run(check.targetName, eventType, reason, durationSec, check.checkedAt);
 
-      return { targetName: check.targetName, endpoint: check.endpoint, eventType, reason, durationSec, occurredAt: check.checkedAt };
+      return {
+        targetName: check.targetName,
+        endpoint: check.endpoint,
+        eventType,
+        reason,
+        durationSec,
+        occurredAt: check.checkedAt,
+      };
     })();
   }
 
@@ -122,5 +162,7 @@ export class PulseStore {
       .all(cutoffIso, limit);
   }
 
-  close(): void { this.db.close(); }
+  close(): void {
+    this.db.close();
+  }
 }

@@ -39,16 +39,37 @@ const DASHBOARD_CSS = `
   .badge { display: inline-block; padding: 1px 7px; border-radius: 3px; border: 1px solid #1E293B; background: #0B0F14; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; font-weight: 600; }
   .empty, .empty-box { padding: 22px 16px; color: #94A3B8; font-size: 12px; margin: 0; }`;
 
-export function renderDashboardHtml(services: ServiceMetrics24h[], incidents: IncidentRow[], filter: 'all' | 'down'): string {
+function formatCodeLabel(s: ServiceMetrics24h): string {
+  if (s.targetType === 'http') {
+    return String(s.lastStatusCode ?? 'ERR');
+  }
+  return s.isUp ? 'TCP OK' : 'TCP ERR';
+}
+
+function getUptimeClass(pct: number): string {
+  if (pct >= 99) return 'st-ok';
+  if (pct >= 95) return 'st-warn';
+  return 'st-err';
+}
+
+export function renderDashboardHtml(
+  services: ServiceMetrics24h[],
+  incidents: IncidentRow[],
+  filter: 'all' | 'down',
+): string {
   const downCount = services.filter((s) => !s.isUp).length;
   const visible = filter === 'down' ? services.filter((s) => !s.isUp) : services;
 
-  const rowsHtml = visible.length === 0
-    ? `<tr><td colspan="7" class="empty">${filter === 'down' ? 'No failing targets right now.' : 'No probe checks recorded yet.'}</td></tr>`
-    : visible.map((s) => {
-        const codeLabel = s.targetType === 'http' ? String(s.lastStatusCode ?? 'ERR') : s.isUp ? 'TCP OK' : 'TCP ERR';
-        const upCls = s.uptimePct24h >= 99 ? 'st-ok' : s.uptimePct24h >= 95 ? 'st-warn' : 'st-err';
-        return `<tr>
+  const emptyLabel =
+    filter === 'down' ? 'No failing targets right now.' : 'No probe checks recorded yet.';
+  const rowsHtml =
+    visible.length === 0
+      ? `<tr><td colspan="7" class="empty">${emptyLabel}</td></tr>`
+      : visible
+          .map((s) => {
+            const codeLabel = formatCodeLabel(s);
+            const upCls = getUptimeClass(s.uptimePct24h);
+            return `<tr>
           <td><div class="svc-name">${esc(s.targetName)}</div><div class="svc-meta">${esc(s.targetType.toUpperCase())} · ${esc(s.endpoint)}</div></td>
           <td><span class="badge ${s.isUp ? 'st-ok' : 'st-err'}">${s.isUp ? 'UP' : 'DOWN'}</span></td>
           <td class="num mono">${esc(codeLabel)}</td>
@@ -57,19 +78,23 @@ export function renderDashboardHtml(services: ServiceMetrics24h[], incidents: In
           <td class="num mono r ${upCls}">${s.uptimePct24h.toFixed(2)}% <span class="muted">(${s.totalChecks24h})</span></td>
           <td class="num mono r muted">${fmtUtc(s.lastCheckedAt)}</td>
         </tr>`;
-      }).join('');
+          })
+          .join('');
 
-  const incidentHtml = incidents.length === 0
-    ? `<p class="empty-box">No failed checks in the last 24h.</p>`
-    : `<table><thead><tr><th>Timestamp (UTC)</th><th>Transition</th><th>Target</th><th>Detail</th><th class="r">Outage Duration</th></tr></thead><tbody>${
-        incidents.map((inc) => `<tr>
+  const incidentHtml =
+    incidents.length === 0
+      ? `<p class="empty-box">No failed checks in the last 24h.</p>`
+      : `<table><thead><tr><th>Timestamp (UTC)</th><th>Transition</th><th>Target</th><th>Detail</th><th class="r">Outage Duration</th></tr></thead><tbody>${incidents
+          .map(
+            (inc) => `<tr>
           <td class="num mono muted">${fmtUtc(inc.occurredAt)}</td>
           <td class="mono ${inc.eventType === 'DOWN' ? 'st-err' : 'st-ok'}">${inc.eventType}</td>
           <td class="mono">${esc(inc.targetName)}</td>
           <td class="muted">${esc(inc.reason)}</td>
           <td class="num mono r muted">${inc.durationSec !== null ? `${inc.durationSec}s` : '—'}</td>
-        </tr>`).join('')
-      }</tbody></table>`;
+        </tr>`,
+          )
+          .join('')}</tbody></table>`;
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>VPS Pulse Monitor</title><style>${DASHBOARD_CSS}</style></head><body>

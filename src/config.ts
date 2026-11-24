@@ -9,9 +9,12 @@ const BaseTargetSchema = z.object({
 
 const HttpTargetSchema = BaseTargetSchema.extend({
   type: z.literal('http'),
-  url: z.string().url().refine((u) => u.startsWith('http://') || u.startsWith('https://'), {
-    message: 'HTTP target must start with http:// or https://',
-  }),
+  url: z
+    .string()
+    .url()
+    .refine((u) => u.startsWith('http://') || u.startsWith('https://'), {
+      message: 'HTTP target must start with http:// or https://',
+    }),
   expectedStatus: z.number().int().min(100).max(599).default(200),
 });
 
@@ -21,10 +24,7 @@ const TcpTargetSchema = BaseTargetSchema.extend({
   port: z.number().int().min(1).max(65_535),
 });
 
-export const TargetConfigSchema = z.discriminatedUnion('type', [
-  HttpTargetSchema,
-  TcpTargetSchema,
-]);
+export const TargetConfigSchema = z.discriminatedUnion('type', [HttpTargetSchema, TcpTargetSchema]);
 
 export const TargetsListSchema = z
   .array(TargetConfigSchema)

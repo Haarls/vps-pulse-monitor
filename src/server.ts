@@ -34,7 +34,9 @@ export function createDashboardServer({ store, onManualSweep }: DashboardOptions
     if (req.method === 'GET' && url.pathname === '/') {
       const filter = url.searchParams.get('filter') === 'down' ? 'down' : 'all';
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      return void res.end(renderDashboardHtml(store.getMetrics24h(), store.getRecentIncidents(), filter));
+      return void res.end(
+        renderDashboardHtml(store.getMetrics24h(), store.getRecentIncidents(), filter),
+      );
     }
     sendJson(res, 404, { error: '404 Not Found' });
   });
