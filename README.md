@@ -1,5 +1,7 @@
 # vps-pulse-monitor
 
+> **Live Demo:** [https://pulse.haarls.dev](https://pulse.haarls.dev) — Live HTTP/TCP prober backed by SQLite WAL (6h rolling retention) with SSRF-protected custom URL testing (`POST /api/probe`) and `/api/status` JSON API.
+
 Single-process HTTP/TCP availability and latency monitor (`p50` / `p95`) backed by SQLite WAL with state-change webhook alerts.
 Includes a `--once` CLI sweep mode and an embedded zero-framework Node.js HTTP status dashboard.
 
