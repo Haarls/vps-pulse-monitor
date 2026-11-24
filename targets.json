@@ -1,0 +1,42 @@
+[
+  {
+    "name": "pulse-local-health",
+    "type": "http",
+    "url": "http://127.0.0.1:4080/healthz",
+    "intervalSeconds": 15,
+    "timeoutMs": 1500,
+    "expectedStatus": 200
+  },
+  {
+    "name": "cloudflare-edge-trace",
+    "type": "http",
+    "url": "https://www.cloudflare.com/cdn-cgi/trace",
+    "intervalSeconds": 30,
+    "timeoutMs": 4000,
+    "expectedStatus": 200
+  },
+  {
+    "name": "github-public-api",
+    "type": "http",
+    "url": "https://api.github.com/zen",
+    "intervalSeconds": 45,
+    "timeoutMs": 4000,
+    "expectedStatus": 200
+  },
+  {
+    "name": "cloudflare-dns-tcp",
+    "type": "tcp",
+    "host": "1.1.1.1",
+    "port": 53,
+    "intervalSeconds": 30,
+    "timeoutMs": 2500
+  },
+  {
+    "name": "google-dns-tls-tcp",
+    "type": "tcp",
+    "host": "8.8.8.8",
+    "port": 443,
+    "intervalSeconds": 30,
+    "timeoutMs": 2500
+  }
+]
